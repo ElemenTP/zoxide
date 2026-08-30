@@ -355,4 +355,47 @@ mod tests {
             db.save().unwrap();
         }
     }
+
+    #[cfg(unix)]
+    #[test]
+    fn new_database_has_private_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let data_dir = tempfile::tempdir().unwrap();
+        let db_path = data_dir.path().join("db.zo");
+        let now = 946684800;
+
+        let mut db = Database::open_dir(data_dir.path()).unwrap();
+        db.add("/foo/bar", 1.0, now);
+        db.save().unwrap();
+
+        let mode = std::fs::metadata(&db_path).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o600, "new db.zo should be created 0600");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn save_preserves_existing_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let data_dir = tempfile::tempdir().unwrap();
+        let db_path = data_dir.path().join("db.zo");
+        let now = 946684800;
+
+        {
+            let mut db = Database::open_dir(data_dir.path()).unwrap();
+            db.add("/foo/bar", 1.0, now);
+            db.save().unwrap();
+        }
+        std::fs::set_permissions(&db_path, std::fs::Permissions::from_mode(0o600)).unwrap();
+
+        {
+            let mut db = Database::open_dir(data_dir.path()).unwrap();
+            db.add("/foo/baz", 1.0, now);
+            db.save().unwrap();
+        }
+
+        let mode = std::fs::metadata(&db_path).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o600, "db.zo permissions should not be widened on save");
+    }
 }

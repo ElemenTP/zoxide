@@ -10,26 +10,39 @@ use crate::util::{self, Fzf, FzfChild};
 
 impl Run for Query {
     fn run(&self) -> Result<()> {
-        let mut db = crate::db::Database::open()?;
-        self.query(&mut db).and(db.save())
+        let mut stdout = io::stdout().lock();
+        self.run_with_writer(&mut stdout)
     }
 }
 
 impl Query {
-    fn query(&self, db: &mut Database) -> Result<()> {
+    /// Run this query, writing the result to `writer` instead of the process
+    /// stdout. Used by in-process embeddings (e.g. shell modules) that need the
+    /// query output as an owned string.
+    pub fn run_with_writer<W: Write>(&self, writer: &mut W) -> Result<()> {
+        let mut db = crate::db::Database::open()?;
+        self.query_with_writer(&mut db, writer).and(db.save())
+    }
+
+    fn query_with_writer<W: Write>(&self, db: &mut Database, writer: &mut W) -> Result<()> {
         let now = util::current_time()?;
         let mut stream = self.get_stream(db, now)?;
 
         if self.interactive {
-            self.query_interactive(&mut stream, now)
+            self.query_interactive(&mut stream, now, writer)
         } else if self.list {
-            self.query_list(&mut stream, now)
+            self.query_list(&mut stream, now, writer)
         } else {
-            self.query_first(&mut stream, now)
+            self.query_first(&mut stream, now, writer)
         }
     }
 
-    fn query_interactive(&self, stream: &mut Stream, now: Epoch) -> Result<()> {
+    fn query_interactive<W: Write>(
+        &self,
+        stream: &mut Stream,
+        now: Epoch,
+        writer: &mut W,
+    ) -> Result<()> {
         let mut fzf = Self::get_fzf()?;
         let selection = loop {
             match stream.next() {
@@ -45,36 +58,33 @@ impl Query {
 
         let stdout = &mut io::stdout();
         if self.score {
-            write!(stdout, "{selection}").pipe_exit("stdout")?;
+            write!(writer, "{selection}").pipe_exit("stdout")?;
         } else {
             let path = selection.get(7..).context("could not read selection from fzf")?;
-            write!(stdout, "{path}").pipe_exit("stdout")?;
+            write!(writer, "{path}").pipe_exit("stdout")?;
         }
         stdout.flush().pipe_exit("stdout")
     }
 
-    fn query_list(&self, stream: &mut Stream, now: Epoch) -> Result<()> {
-        let handle = &mut io::stdout().lock();
+    fn query_list<W: Write>(&self, stream: &mut Stream, now: Epoch, writer: &mut W) -> Result<()> {
         while let Some(dir) = stream.next() {
             if Some(dir.path.as_ref()) == self.exclude.as_deref() {
                 continue;
             }
             let dir = if self.score { dir.display().with_score(now) } else { dir.display() };
-            writeln!(handle, "{dir}").pipe_exit("stdout")?;
+            writeln!(writer, "{dir}").pipe_exit("stdout")?;
         }
         Ok(())
     }
 
-    fn query_first(&self, stream: &mut Stream, now: Epoch) -> Result<()> {
-        let handle = &mut io::stdout();
-
+    fn query_first<W: Write>(&self, stream: &mut Stream, now: Epoch, writer: &mut W) -> Result<()> {
         let mut dir = stream.next().context("no match found")?;
         while Some(dir.path.as_ref()) == self.exclude.as_deref() {
             dir = stream.next().context("you are already in the only match")?;
         }
 
         let dir = if self.score { dir.display().with_score(now) } else { dir.display() };
-        writeln!(handle, "{dir}").pipe_exit("stdout")
+        writeln!(writer, "{dir}").pipe_exit("stdout")
     }
 
     fn get_stream<'a>(&self, db: &'a mut Database, now: Epoch) -> Result<Stream<'a>> {

@@ -165,12 +165,15 @@ pub fn write(path: impl AsRef<Path>, contents: impl AsRef<[u8]>) -> Result<()> {
             .write_all(contents)
             .with_context(|| format!("could not write to file: {}", tmp_path.display()))?;
 
-        // Set the owner of the tmpfile (UNIX only).
+        // Preserve the owner and permission bits of an existing database file
+        // (UNIX only). New database files stay with the 0600 mode set by
+        // [`tmpfile`], so directory history is not exposed to other users.
         #[cfg(unix)]
         if let Ok(metadata) = path.metadata() {
-            use std::os::unix::fs::{MetadataExt, fchown};
+            use std::os::unix::fs::{MetadataExt, PermissionsExt, fchown};
 
             _ = fchown(&tmp_file, Some(metadata.uid()), Some(metadata.gid()));
+            _ = tmp_file.set_permissions(fs::Permissions::from_mode(metadata.permissions().mode()));
         }
 
         // Close and rename the tmpfile.
@@ -208,8 +211,18 @@ fn tmpfile(dir: impl AsRef<Path>) -> Result<(File, PathBuf)> {
         }
         let path = dir.join(name);
 
-        // Atomically create the tmpfile.
-        match OpenOptions::new().write(true).create_new(true).open(&path) {
+        // Atomically create the tmpfile. On Unix, create it 0600 so a brand-new
+        // database never becomes world-readable; existing database files have
+        // their original mode restored by [`write`].
+        let mut options = OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+
+        match options.open(&path) {
             Ok(file) => break Ok((file, path)),
             Err(e) if e.kind() == io::ErrorKind::AlreadyExists && attempts < MAX_ATTEMPTS => {}
             Err(e) => {
