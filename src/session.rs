@@ -47,17 +47,17 @@ impl Session {
 
     /// Add a directory to the database. Mirrors `zoxide add`.
     pub fn add(&mut self, path: impl AsRef<Path>, score: Rank) -> Result<()> {
-        Cmd::Add(Add { paths: vec![path.as_ref().to_path_buf()], score: Some(score) }).run()?;
-
         self.stats.adds += 1;
+        
+        Cmd::Add(Add { paths: vec![path.as_ref().to_path_buf()], score: Some(score) }).run()?;
         Ok(())
     }
 
     /// Remove a directory from the database. Mirrors `zoxide remove`.
     pub fn remove(&mut self, path: &str) -> Result<()> {
-        Cmd::Remove(Remove { paths: vec![path.to_owned()] }).run()?;
-
         self.stats.removes += 1;
+
+        Cmd::Remove(Remove { paths: vec![path.to_owned()] }).run()?;
         Ok(())
     }
 
@@ -67,6 +67,8 @@ impl Session {
     /// into a buffer and trims the trailing newline, matching the shell
     /// command-substitution semantics that the shell modules expect.
     pub fn query(&mut self, options: QueryOptions) -> Result<String> {
+        self.stats.queries += 1;
+
         if options.interactive && options.list {
             bail!("--interactive and --list cannot be used together");
         }
@@ -84,8 +86,6 @@ impl Session {
         let mut output = Vec::new();
         query.run_with_writer(&mut output)?;
         let output = String::from_utf8(output).context("query output is not valid UTF-8")?;
-
-        self.stats.queries += 1;
         Ok(output.trim_end_matches(['\n', '\r']).to_string())
     }
 
