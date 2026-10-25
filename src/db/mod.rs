@@ -362,7 +362,7 @@ mod tests {
         use std::os::unix::fs::PermissionsExt;
 
         let data_dir = tempfile::tempdir().unwrap();
-        let db_path = data_dir.path().join("db.zo");
+        let db_path = data_dir.path().join("db.txt");
         let now = 946684800;
 
         let mut db = Database::open_dir(data_dir.path()).unwrap();
@@ -370,7 +370,7 @@ mod tests {
         db.save().unwrap();
 
         let mode = std::fs::metadata(&db_path).unwrap().permissions().mode();
-        assert_eq!(mode & 0o777, 0o600, "new db.zo should be created 0600");
+        assert_eq!(mode & 0o777, 0o600, "new db.txt should be created 0600");
     }
 
     #[cfg(unix)]
@@ -379,7 +379,7 @@ mod tests {
         use std::os::unix::fs::PermissionsExt;
 
         let data_dir = tempfile::tempdir().unwrap();
-        let db_path = data_dir.path().join("db.zo");
+        let db_path = data_dir.path().join("db.txt");
         let now = 946684800;
 
         {
@@ -396,6 +396,6 @@ mod tests {
         }
 
         let mode = std::fs::metadata(&db_path).unwrap().permissions().mode();
-        assert_eq!(mode & 0o777, 0o600, "db.zo permissions should not be widened on save");
+        assert_eq!(mode & 0o777, 0o600, "db.txt permissions should not be widened on save");
     }
 }
